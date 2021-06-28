@@ -78,20 +78,22 @@ class TimbreDistanceErrorMetric(TimbreMetric):
         self.add_state("error", default=torch.tensor(0.0), dist_reduce_fx="sum")
         self.add_state("count", default=torch.tensor(0), dist_reduce_fx="sum")
 
-    def _compute_error(self, target: torch.Tensor, embeddings: torch.Tensor):
+    def _compute_error(self, target: torch.Tensor, distances: torch.Tensor):
         raise NotImplementedError("Can't instantiate abstract base class.")
 
     def update(self, embeddings: Union[torch.Tensor, dict]):
         self._validate_embeddings(embeddings)
         if not self.dataset:
             for dataset in self.datasets:
+                distances = self._compute_embedding_distances(embeddings[dataset])
                 dataset_error = self._compute_error(
-                    self.dissimilarity_matrices[dataset], embeddings[dataset]
+                    self.dissimilarity_matrices[dataset], distances
                 )
                 self.error += dataset_error
                 self.count += embeddings[dataset].shape[0]
         else:
-            dataset_error = self._compute_error(self.dissimilarity_matrix, embeddings)
+            distances = self._compute_embedding_distances(embeddings)
+            dataset_error = self._compute_error(self.dissimilarity_matrix, distances)
             self.error += dataset_error
             self.count += embeddings.shape[0]
 
@@ -103,8 +105,7 @@ class TimbreMAE(TimbreDistanceErrorMetric):
     def __init__(self, dataset=None, distance=l2, dist_sync_on_step=False):
         super().__init__(dataset, distance, dist_sync_on_step)
 
-    def _compute_error(self, target: torch.Tensor, embeddings: torch.Tensor):
-        distances = self._compute_embedding_distances(embeddings)
+    def _compute_error(self, target: torch.Tensor, distances: torch.Tensor):
         absolute_error = torch.sum(torch.abs(target - distances))
         return absolute_error
 
@@ -113,25 +114,51 @@ class TimbreMSE(TimbreDistanceErrorMetric):
     def __init__(self, dataset=None, distance=l2, dist_sync_on_step=False):
         super().__init__(dataset, distance, dist_sync_on_step)
 
-    def _compute_error(self, target: torch.Tensor, embeddings: torch.Tensor):
-        distances = self._compute_embedding_distances(embeddings)
+    def _compute_error(self, target: torch.Tensor, distances: torch.Tensor):
         squared_error = torch.sum((target - distances) ** 2)
         return squared_error
 
 
-class TimbreRankingDistance(TimbreDistanceErrorMetric):
+class TimbreRankedErrorMetric(TimbreDistanceErrorMetric):
     def __init__(self, dataset=None, distance=l2, dist_sync_on_step=False):
         super().__init__(dataset, distance, dist_sync_on_step)
 
-    def _compute_error(self, target: torch.Tensor, embeddings: torch.Tensor):
-        distances = self._compute_embedding_distances(embeddings)
+    def _get_rankings(self, target: torch.Tensor, distances: torch.Tensor):
+        distances_full = distances + distances.t()
+        target_full = target + target.t()
 
-        distances = distances + distances.t()
-        target = target + target.t()
+        distances_ranked = torch.argsort(distances_full, dim=1)
+        target_ranked = torch.argsort(target_full, dim=1)
 
-        distances = torch.argsort(distances, dim=1)
-        target = torch.argsort(target, dim=1)
+        return target_ranked, distances_ranked
 
-        item_rank_scores = torch.sum(torch.abs(target - distances), dim=1)
 
-        return torch.sum(item_rank_scores)
+class TimbreRankingDistance(TimbreRankedErrorMetric):
+    def __init__(self, dataset=None, distance=l2, dist_sync_on_step=False):
+        super().__init__(dataset, distance, dist_sync_on_step)
+
+    def _compute_error(self, target: torch.Tensor, distances: torch.Tensor):
+        target_ranked, distances_ranked = self._get_rankings(target, distances)
+
+        sum_absolute_rank_error = torch.sum(
+            torch.abs(target_ranked - distances_ranked), dim=1
+        )
+
+        return torch.sum(sum_absolute_rank_error)
+
+
+class TimbreSpearmanCorrCoef(TimbreRankedErrorMetric):
+    def __init__(self, dataset=None, distance=l2, dist_sync_on_step=False):
+        super().__init__(dataset, distance, dist_sync_on_step)
+
+    def _compute_error(self, target: torch.Tensor, distances: torch.Tensor):
+        target_ranked, distances_ranked = self._get_rankings(target, distances)
+
+        squared_rank_difference = (target_ranked - distances_ranked) ** 2
+        summed_squared_rank_difference = squared_rank_difference.sum(dim=1)
+
+        n = target.shape[0]
+
+        rho = 1 - (6 * summed_squared_rank_difference) / (n * (n ** 2 - 1))
+
+        return rho.mean()

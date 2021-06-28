@@ -14,17 +14,19 @@ if __name__ == "__main__":
         [
             torch.stft(
                 torch.tensor(audio_file["audio"]),
-                2048,
-                window=torch.hann_window(2048),
+                128,
+                window=torch.hann_window(128),
                 return_complex=True,
                 normalized=True,
             )
-            .abs()
+            .abs()[:, 0]
             .mean(dim=-1)
             for audio_file in audio
         ],
         dim=0,
     )
 
-    metric = timbremetrics.TimbreRankingDistance(dataset=dataset, distance=timbremetrics.l2)
+    metric = timbremetrics.TimbreSpearmanCorrCoef(
+        dataset=dataset, distance=timbremetrics.l2
+    )
     print(metric(embeddings))
