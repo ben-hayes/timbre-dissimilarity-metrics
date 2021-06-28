@@ -124,4 +124,14 @@ class TimbreRankingDistance(TimbreDistanceErrorMetric):
         super().__init__(dataset, distance, dist_sync_on_step)
 
     def _compute_error(self, target: torch.Tensor, embeddings: torch.Tensor):
-        pass
+        distances = self._compute_embedding_distances(embeddings)
+
+        distances = distances + distances.t()
+        target = target + target.t()
+
+        distances = torch.argsort(distances, dim=1)
+        target = torch.argsort(target, dim=1)
+
+        item_rank_scores = torch.sum(torch.abs(target - distances), dim=1)
+
+        return torch.sum(item_rank_scores)
