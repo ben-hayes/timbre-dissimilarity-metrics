@@ -162,3 +162,23 @@ class TimbreSpearmanCorrCoef(TimbreRankedErrorMetric):
         rho = 1 - (6 * summed_squared_rank_difference) / (n * (n ** 2 - 1))
 
         return rho.mean()
+
+class TimbreRankAtK(TimbreRankedErrorMetric):
+
+     def __init__(self, dataset=None, distance=l2, dist_sync_on_step=False, k=5):   
+         super().__init__(dataset, distance, dist_sync_on_step)
+
+         self.k = k
+ 
+     def _compute_error(self, target: torch.Tensor, distances: torch.Tensor):
+         target_ranked, distances_ranked = self._get_rankings(target, distances)
+         
+         target_ranked_mask = target_ranked <= self.k
+         target_ranked = target_ranked * target_ranked_mask.float()
+
+         distances_ranked_mask = distances_ranked <= self.k
+         distances_ranked = distances_ranked * distances_ranked_mask.float()           
+
+         rank_difference = torch.sum(torch.abs(target_ranked - distances_ranked), dim=1)
+ 
+         return torch.sum(rank_difference)

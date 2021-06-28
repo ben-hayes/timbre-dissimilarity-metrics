@@ -26,7 +26,7 @@ if __name__ == "__main__":
         dim=0,
     )
 
-    metric = timbremetrics.TimbreSpearmanCorrCoef(
-        dataset=dataset, distance=timbremetrics.l2
+    metric = timbremetrics.TimbreRankAtK(
+        dataset=dataset, distance=timbremetrics.l2, k=10
     )
     print(metric(embeddings))

@@ -7,4 +7,5 @@ from .metrics import (
     TimbreMSE,
     TimbreRankingDistance,
     TimbreSpearmanCorrCoef,
+    TimbreRankAtK
 )
