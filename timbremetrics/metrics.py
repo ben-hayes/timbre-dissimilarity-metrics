@@ -163,22 +163,83 @@ class TimbreSpearmanCorrCoef(TimbreRankedErrorMetric):
 
         return rho.mean()
 
+
 class TimbreRankAtK(TimbreRankedErrorMetric):
+    def __init__(self, k=5, dataset=None, distance=l2, dist_sync_on_step=False):
+        super().__init__(dataset, distance, dist_sync_on_step)
 
-     def __init__(self, dataset=None, distance=l2, dist_sync_on_step=False, k=5):   
-         super().__init__(dataset, distance, dist_sync_on_step)
+        self.k = k
 
-         self.k = k
- 
-     def _compute_error(self, target: torch.Tensor, distances: torch.Tensor):
-         target_ranked, distances_ranked = self._get_rankings(target, distances)
-         
-         target_ranked_mask = target_ranked <= self.k
-         target_ranked = target_ranked * target_ranked_mask.float()
+    def _compute_error(self, target: torch.Tensor, distances: torch.Tensor):
+        target_ranked, distances_ranked = self._get_rankings(target, distances)
 
-         distances_ranked_mask = distances_ranked <= self.k
-         distances_ranked = distances_ranked * distances_ranked_mask.float()           
+        target_ranked_mask = target_ranked <= self.k
+        target_ranked = target_ranked * target_ranked_mask.float()
 
-         rank_difference = torch.sum(torch.abs(target_ranked - distances_ranked), dim=1)
- 
-         return torch.sum(rank_difference)
+        distances_ranked_mask = distances_ranked <= self.k
+        distances_ranked = distances_ranked * distances_ranked_mask.float()
+
+        rank_difference = torch.sum(torch.abs(target_ranked - distances_ranked), dim=1)
+
+        return torch.sum(rank_difference)
+
+
+class TimbreTripletAgreement(TimbreMetric):
+    def __init__(self, margin=0.0, dataset=None, distance=l2, dist_sync_on_step=False):
+        super().__init__(dataset, distance, dist_sync_on_step)
+        self.margin = margin
+
+        self.add_state("error", default=torch.tensor(0.0), dist_reduce_fx="mean")
+
+    def _compute_triplet_accuracy(self, target: torch.Tensor, distances: torch.Tensor):
+        item_indices = torch.arange(0, distances.shape[0])
+        possible_triplets = torch.combinations(item_indices, r=3, with_replacement=True)
+
+        triplet_agreements = 0
+        total_triplets = 0
+        for i in range(possible_triplets.shape[0]):
+            for permutation in range(3):
+                triplet_indices = possible_triplets[i].roll(permutation)
+                anchor = triplet_indices[0]
+                anchor_a_distance = target[anchor, triplet_indices[1]]
+                anchor_b_distance = target[anchor, triplet_indices[2]]
+
+                if torch.abs(anchor_a_distance - anchor_b_distance) < self.margin:
+                    continue
+
+                closest = (
+                    triplet_indices[1]
+                    if anchor_a_distance < anchor_b_distance
+                    else triplet_indices[2]
+                )
+                furthest = (
+                    triplet_indices[2]
+                    if anchor_a_distance < anchor_b_distance
+                    else triplet_indices[1]
+                )
+
+                if distances[anchor, closest] < distances[anchor, furthest]:
+                    triplet_agreements += 1
+                total_triplets += 1
+        
+        return triplet_agreements / total_triplets
+
+    def update(self, embeddings: Union[torch.Tensor, dict]):
+        self._validate_embeddings(embeddings)
+        if not self.dataset:
+            for dataset in self.datasets:
+                distances = self._compute_embedding_distances(embeddings[dataset])
+                dataset_error = self._compute_triplet_accuracy(
+                    self.dissimilarity_matrices[dataset], distances
+                )
+                self.error += dataset_error
+                self.count += embeddings[dataset].shape[0]
+        else:
+            distances = self._compute_embedding_distances(embeddings)
+            dataset_error = self._compute_triplet_accuracy(
+                self.dissimilarity_matrix, distances
+            )
+            self.error += dataset_error
+
+    def compute(self):
+        return self.error

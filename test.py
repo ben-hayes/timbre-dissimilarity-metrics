@@ -14,8 +14,8 @@ if __name__ == "__main__":
         [
             torch.stft(
                 torch.tensor(audio_file["audio"]),
-                128,
-                window=torch.hann_window(128),
+                4096,
+                window=torch.hann_window(4096),
                 return_complex=True,
                 normalized=True,
             )
@@ -26,7 +26,7 @@ if __name__ == "__main__":
         dim=0,
     )
 
-    metric = timbremetrics.TimbreRankAtK(
-        dataset=dataset, distance=timbremetrics.l2, k=10
+    metric = timbremetrics.TimbreTripletAgreement(
+        margin=0.0, dataset=dataset, distance=timbremetrics.l1
     )
     print(metric(embeddings))
