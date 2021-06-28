@@ -72,36 +72,56 @@ class TimbreMetric(Metric):
         return distances
 
 
-class TimbreMAE(TimbreMetric):
+class TimbreDistanceErrorMetric(TimbreMetric):
     def __init__(self, dataset=None, distance=l2, dist_sync_on_step=False):
         super().__init__(dataset, distance, dist_sync_on_step)
-        self.add_state(
-            "absolute_error", default=torch.tensor(0.0), dist_reduce_fx="sum"
-        )
+        self.add_state("error", default=torch.tensor(0.0), dist_reduce_fx="sum")
         self.add_state("count", default=torch.tensor(0), dist_reduce_fx="sum")
 
-    def _single_dataset_absolute_error(
-        self, target: torch.Tensor, embeddings: torch.Tensor
-    ):
-        distances = self._compute_embedding_distances(embeddings)
-        absolute_error = torch.sum(torch.abs(target - distances))
-        return absolute_error
+    def _compute_error(self, target: torch.Tensor, embeddings: torch.Tensor):
+        raise NotImplementedError("Can't instantiate abstract base class.")
 
     def update(self, embeddings: Union[torch.Tensor, dict]):
         self._validate_embeddings(embeddings)
         if not self.dataset:
             for dataset in self.datasets:
-                dataset_absolute_error = self._single_dataset_absolute_error(
+                dataset_error = self._compute_error(
                     self.dissimilarity_matrices[dataset], embeddings[dataset]
                 )
-                self.absolute_error += dataset_absolute_error
+                self.error += dataset_error
                 self.count += embeddings[dataset].shape[0]
         else:
-            dataset_absolute_error = self._single_dataset_absolute_error(
-                self.dissimilarity_matrix, embeddings
-            )
-            self.absolute_error += dataset_absolute_error
+            dataset_error = self._compute_error(self.dissimilarity_matrix, embeddings)
+            self.error += dataset_error
             self.count += embeddings.shape[0]
 
     def compute(self):
-        return self.absolute_error / self.count
+        return self.error / self.count
+
+
+class TimbreMAE(TimbreDistanceErrorMetric):
+    def __init__(self, dataset=None, distance=l2, dist_sync_on_step=False):
+        super().__init__(dataset, distance, dist_sync_on_step)
+
+    def _compute_error(self, target: torch.Tensor, embeddings: torch.Tensor):
+        distances = self._compute_embedding_distances(embeddings)
+        absolute_error = torch.sum(torch.abs(target - distances))
+        return absolute_error
+
+
+class TimbreMSE(TimbreDistanceErrorMetric):
+    def __init__(self, dataset=None, distance=l2, dist_sync_on_step=False):
+        super().__init__(dataset, distance, dist_sync_on_step)
+
+    def _compute_error(self, target: torch.Tensor, embeddings: torch.Tensor):
+        distances = self._compute_embedding_distances(embeddings)
+        squared_error = torch.sum((target - distances) ** 2)
+        return squared_error
+
+
+class TimbreRankingDistance(TimbreDistanceErrorMetric):
+    def __init__(self, dataset=None, distance=l2, dist_sync_on_step=False):
+        super().__init__(dataset, distance, dist_sync_on_step)
+
+    def _compute_error(self, target: torch.Tensor, embeddings: torch.Tensor):
+        pass

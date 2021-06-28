@@ -26,5 +26,5 @@ if __name__ == "__main__":
         dim=0,
     )
 
-    metric = timbremetrics.TimbreMAE(dataset=dataset, distance=timbremetrics.l1)
+    metric = timbremetrics.TimbreMAE(dataset=dataset, distance=timbremetrics.l2)
     print(metric(embeddings))
