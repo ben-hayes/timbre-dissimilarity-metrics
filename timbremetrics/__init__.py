@@ -6,6 +6,6 @@ from .metrics import (
     MAE,
     Mantel,
     MSE,
-    RankingAgreement,
+    ItemRankingAgreement,
     TripletAgreement,
 )

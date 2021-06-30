@@ -9,8 +9,8 @@ if __name__ == "__main__":
     metrics = [
         ["MSE", timbremetrics.MSE()],
         ["MAE", timbremetrics.MAE()],
-        ["Ranking Agreement", timbremetrics.RankingAgreement()],
-        ["Ranking Agreement k=5", timbremetrics.RankingAgreement(k=3)],
+        ["Ranking Agreement", timbremetrics.ItemRankingAgreement()],
+        ["Ranking Agreement k=5", timbremetrics.ItemRankingAgreement(k=5)],
         ["Triplet Agreement", timbremetrics.TripletAgreement()],
         [
             "Mantel test (pearson)",

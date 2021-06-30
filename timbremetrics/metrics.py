@@ -87,14 +87,8 @@ class TimbreMeanErrorMetric(TimbreMetric):
         self._validate_embeddings(embeddings)
         if not self.dataset:
             for dataset in self.datasets:
-                distances_upper_tri = self._compute_embedding_distances(
-                    embeddings[dataset]
-                )
-                distances = distances_upper_tri + distances_upper_tri.t()
-                target = (
-                    self.dissimilarity_matrices[dataset]
-                    + self.dissimilarity_matrices[dataset].t()
-                )
+                distances = self._compute_embedding_distances(embeddings[dataset])
+                target = self.dissimilarity_matrices[dataset]
                 error = self._compute_item_error(target, distances)
                 self.error.append(error)
         else:
@@ -138,24 +132,30 @@ class TimbreRankedErrorMetric(TimbreMeanErrorMetric):
         return target_ranked, distances_ranked
 
 
-class RankingAgreement(TimbreRankedErrorMetric):
+class ItemRankingAgreement(TimbreRankedErrorMetric):
     def __init__(self, k=None, dataset=None, distance=l2, dist_sync_on_step=False):
         super().__init__(dataset, distance, dist_sync_on_step)
         self.k = k
 
     def _compute_item_error(self, target: torch.Tensor, distances: torch.Tensor):
-        target_ranked, distances_ranked = self._get_rankings(target, distances)
+        target_full = target + target.t()
+        distances_full = distances + distances.t()
+        target_ranked, distances_ranked = self._get_rankings(
+            target_full, distances_full
+        )
 
         if self.k:
-            target_ranked = target_ranked * (target_ranked <= self.k)
-            distances_ranked = distances_ranked * (distances_ranked <= self.k)
+            target_ranked = target_ranked[target_ranked <= self.k]
+            distances_ranked = distances_ranked[distances_ranked <= self.k]
+            comparisons = self.k * target.shape[0]
+        else:
+            comparisons = distances.numel() - distances.shape[0]
 
         matching_ranks = (
             torch.sum((target_ranked == distances_ranked).float()) - distances.shape[0]
         )
-        count = distances.numel() - distances.shape[0]
 
-        return matching_ranks / count
+        return matching_ranks / comparisons
 
 
 class TripletAgreement(TimbreMeanErrorMetric):
@@ -163,12 +163,14 @@ class TripletAgreement(TimbreMeanErrorMetric):
         self,
         positive_radius=0.3,
         margin=0.1,
+        enforce_margin=True,
         dataset=None,
         distance=l2,
         dist_sync_on_step=False,
     ):
         super().__init__(dataset, distance, dist_sync_on_step)
         self.margin = margin
+        self.enforce_margin = enforce_margin
         self.positive_radius = positive_radius
 
     def _compute_item_error(self, target: torch.Tensor, distances: torch.Tensor):
@@ -182,8 +184,9 @@ class TripletAgreement(TimbreMeanErrorMetric):
             for positive in positives:
                 for negative in negatives:
                     total_triplets += 1
+                    margin = self.margin if self.enforce_margin else 0
                     if (
-                        distances[anchor, positive] + self.margin
+                        distances[anchor, positive] + margin
                         < distances[anchor, negative]
                     ):
                         triplet_agreements += 1
