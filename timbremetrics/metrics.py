@@ -1,3 +1,4 @@
+from math import perm
 from typing import Union
 
 import numpy as np
@@ -196,24 +197,59 @@ class TripletAgreement(TimbreMeanErrorMetric):
 
 class Mantel(TimbreMeanErrorMetric):
     def __init__(
-        self, method="pearson", dataset=None, distance=l2, dist_sync_on_step=False
+        self,
+        method="pearson",
+        permutations=0,
+        alternative="greater",
+        dataset=None,
+        distance=l2,
+        dist_sync_on_step=False,
     ):
         super().__init__(dataset, distance, dist_sync_on_step)
         assert method in (
             "pearson",
             "spearman",
         ), 'Method must be one of ("pearson", "spearman")'
-        self.method = method
+        assert alternative in (
+            "greater",
+            "less",
+            "two-sided",
+        ), 'Alternative hypothesis must be one of ("greater", "less", "two-sided")'
+        self.correlation_function = (
+            self._pearsonr if method == "pearson" else self._spearmanr
+        )
+        self.alternative_hypothesis = (
+            (lambda r, permutations: r <= permutations)
+            if alternative == "greater"
+            else (lambda r, permutations: r >= permutations)
+            if alternative == "less"
+            else (lambda r, permutations: torch.abs(r) <= torch.abs(permutations))
+        )
+
+        self.permutations = permutations
+
+    def _make_upper_tri_mask(self, matrix: torch.Tensor):
+        return torch.ones_like(matrix).triu(1).bool()
+
+    def _to_condensed_upper_triangle(self, matrix: torch.Tensor):
+        upper_tri_mask = self._make_upper_tri_mask(matrix)
+        condensed_matrix = matrix[upper_tri_mask]
+        return condensed_matrix
+
+    def _permute_upper_triangle(self, matrix: torch.Tensor):
+        upper_tri_mask = self._make_upper_tri_mask(matrix)
+        permutation = torch.randperm(matrix[upper_tri_mask].numel())
+        matrix = matrix.clone()
+        matrix[upper_tri_mask] = matrix[upper_tri_mask][permutation]
+        return matrix
 
     def _to_standardised_condensed_upper_triangle(self, matrix: torch.Tensor):
-        upper_tri_mask = torch.ones_like(matrix).triu(1).bool()
-        condensed_matrix = matrix[upper_tri_mask]
+        condensed_matrix = self._to_condensed_upper_triangle(matrix)
 
         return (condensed_matrix - condensed_matrix.mean()) / condensed_matrix.std()
 
     def _to_ranked_condensed_upper_triangle(self, matrix: torch.Tensor):
-        upper_tri_mask = torch.ones_like(matrix).triu(1).bool()
-        condensed_matrix = matrix[upper_tri_mask]
+        condensed_matrix = self._to_condensed_upper_triangle(matrix)
 
         return condensed_matrix.argsort()
 
@@ -234,10 +270,24 @@ class Mantel(TimbreMeanErrorMetric):
 
         return 1 - (numer / denom)
 
-    def _compute_item_error(self, target: torch.Tensor, distances: torch.Tensor):
-        if self.method == "spearman":
-            r = self._spearmanr(target, distances)
-        else:
-            r = self._pearsonr(target, distances)
+    def _permutation_test(self, a: torch.Tensor, b: torch.Tensor):
+        permutations = [
+            self.correlation_function(self._permute_upper_triangle(a), b)
+            for _ in range(self.permutations)
+        ]
+        return torch.tensor(permutations)
 
-        return [r, 0.1]
+    def _compute_item_error(self, target: torch.Tensor, distances: torch.Tensor):
+        r = self.correlation_function(target, distances)
+
+        if self.permutations == 0:
+            p_value = torch.tensor(float("nan"))
+        else:
+            permutations = self._permutation_test(distances, target)
+
+            p_value = (
+                torch.sum(self.alternative_hypothesis(r, permutations))
+                / self.permutations
+            )
+
+        return [r, p_value]

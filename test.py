@@ -12,8 +12,14 @@ if __name__ == "__main__":
         ["Ranking Agreement", timbremetrics.RankingAgreement()],
         ["Ranking Agreement k=5", timbremetrics.RankingAgreement(k=3)],
         ["Triplet Agreement", timbremetrics.TripletAgreement()],
-        ["Mantel test (pearson)", timbremetrics.Mantel(method="pearson")],
-        ["Mantel test (spearman)", timbremetrics.Mantel(method="spearman")],
+        [
+            "Mantel test (pearson)",
+            timbremetrics.Mantel(method="pearson", permutations=500),
+        ],
+        [
+            "Mantel test (spearman)",
+            timbremetrics.Mantel(method="spearman", permutations=500),
+        ],
     ]
     datasets = timbremetrics.list_datasets()
     audio = timbremetrics.get_audio()
@@ -37,22 +43,50 @@ if __name__ == "__main__":
         print(name)
         mds_metric = metric(embeddings_mds)
         rand_metric = metric(embeddings_random)
-        if hasattr(mds_metric[0], "isnan"):
+        if isinstance(mds_metric[0], list):
+            mds_pvalues = np.array([m[1] for m in mds_metric])
+            mds_metric = np.array([m[0] for m in mds_metric])
+            rand_pvalues = np.array([m[1] for m in rand_metric])
+            rand_metric = np.array([m[0] for m in rand_metric])
+            print(
+                "MDS : mean %.4f, min %.4f, max %.4f; p: mean %.4f, min %.4f, max %.4f"
+                % (
+                    mds_metric.mean(),
+                    mds_metric.min(),
+                    mds_metric.max(),
+                    mds_pvalues.mean(),
+                    mds_pvalues.min(),
+                    mds_pvalues.max(),
+                )
+            )
+            print(
+                "Rand: mean %.4f, min %.4f, max %.4f; p: mean %.4f, min %.4f, max %.4f"
+                % (
+                    rand_metric.mean(),
+                    rand_metric.min(),
+                    rand_metric.max(),
+                    rand_pvalues.mean(),
+                    rand_pvalues.min(),
+                    rand_pvalues.max(),
+                )
+            )
+        else:
             mds_metric = [m for m in mds_metric if not m.isnan()]
             rand_metric = [m for m in rand_metric if not m.isnan()]
-        print(
-            "MDS : mean %.4f, min %.4f, max %.8f"
-            % (
-                np.array(mds_metric).mean(),
-                np.array(mds_metric).min(),
-                np.array(mds_metric).max(),
+
+            print(
+                "MDS : mean %.4f, min %.4f, max %.8f"
+                % (
+                    np.array(mds_metric).mean(),
+                    np.array(mds_metric).min(),
+                    np.array(mds_metric).max(),
+                )
             )
-        )
-        print(
-            "Rand: mean %.4f, min %.4f, max %.4f"
-            % (
-                np.array(rand_metric).mean(),
-                np.array(rand_metric).min(),
-                np.array(rand_metric).max(),
+            print(
+                "Rand: mean %.4f, min %.4f, max %.4f"
+                % (
+                    np.array(rand_metric).mean(),
+                    np.array(rand_metric).min(),
+                    np.array(rand_metric).max(),
+                )
             )
-        )
