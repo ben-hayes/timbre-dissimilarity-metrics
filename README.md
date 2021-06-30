@@ -54,3 +54,11 @@ Where ![idf](https://latex.codecogs.com/png.latex?1_A%28x%29) is the indicator f
 ![Indicator function](https://latex.codecogs.com/png.latex?1_A%28x%29%20%3A%3D%20%5Cbegin%7Bcases%7D%201%20%5Cquad%20%5Ctext%7Bif%20%7D%20x%20%5Cin%20A%20%5C%5C%200%20%5Cquad%20%5Ctext%7Bif%20%7D%20x%20%5Cnotin%20A%20%5C%20%5Cend%7Bcases%7D)
 
 and ![R_X](https://latex.codecogs.com/png.latex?R_X) & ![R_Y](https://latex.codecogs.com/png.latex?R_Y) are distances matrices ranked per item such that each row contains the ordinal distances from the corresponding item. We also provide a _top-k_ version which computes this metric considering only the closest _k_ items in each row.
+
+### Triplet Agreement
+
+Samples pseudo-triplets from the target distance matrix according to a positivity radius and margin, and returns the proportion of these triplets for which ordering is retained in the predicted distance matrix, with the margin optionally enforced.
+
+### Mantel Test
+
+The Mantel test computes Pearson's r or Spearman's rho on the condensed form of the upper triangles of the predicted and target distance matrices. The significance of the given result can be estimated using permutation analysis.
