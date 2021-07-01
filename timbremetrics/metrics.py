@@ -21,7 +21,7 @@ class TimbreMetric(Metric):
         super().__init__(dist_sync_on_step=dist_sync_on_step)
 
         self.distance = distance
-        self.datasets = list_datasets()
+        self.datasets = tuple(list_datasets())
         self.dataset = None
         if not dataset:
             self.dissimilarity_matrices = {}
