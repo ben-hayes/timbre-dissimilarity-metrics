@@ -43,7 +43,7 @@ if __name__ == "__main__":
         print(name)
         mds_metric = metric(embeddings_mds)
         rand_metric = metric(embeddings_random)
-        if isinstance(mds_metric[0], list):
+        if isinstance(mds_metric[0], list) or isinstance(mds_metric[0], tuple):
             mds_pvalues = np.array([m[1] for m in mds_metric])
             mds_metric = np.array([m[0] for m in mds_metric])
             rand_pvalues = np.array([m[1] for m in rand_metric])

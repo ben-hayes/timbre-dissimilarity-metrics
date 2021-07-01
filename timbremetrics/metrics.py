@@ -293,4 +293,4 @@ class Mantel(TimbreMeanErrorMetric):
                 / self.permutations
             )
 
-        return [r, p_value]
+        return (r, p_value)
