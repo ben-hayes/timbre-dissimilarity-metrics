@@ -1,3 +1,4 @@
 {
-    "python.pythonPath": "/Users/benhayes/.pyenv/versions/3.8.7/envs/timbre-dissimilarity-metrics/bin/python"
+    "python.pythonPath": "/Users/benhayes/.pyenv/versions/3.8.7/envs/timbre-dissimilarity-metrics/bin/python",
+    "jupyter.jupyterServerType": "remote"
 }
