@@ -77,7 +77,7 @@ class TimbreMeanErrorMetric(TimbreMetric):
     def __init__(self, dataset=None, distance=l2, dist_sync_on_step=False):
         super().__init__(dataset, distance, dist_sync_on_step)
 
-        error = torch.tensor(0) if self.dataset else []
+        error = torch.tensor(0) if self.dataset else torch.zeros(len(self.datasets))
         self.add_state("error", default=error, dist_reduce_fx="sum")
 
     def _compute_item_error(self, target: torch.Tensor, distances: torch.Tensor):
@@ -86,16 +86,16 @@ class TimbreMeanErrorMetric(TimbreMetric):
     def update(self, embeddings: Union[torch.Tensor, dict]):
         self._validate_embeddings(embeddings)
         if not self.dataset:
-            for dataset in self.datasets:
+            for i, dataset in enumerate(self.datasets):
                 distances = self._compute_embedding_distances(embeddings[dataset])
                 target = self.dissimilarity_matrices[dataset]
                 error = self._compute_item_error(target, distances)
-                self.error.append(error)
+                self.error[i] += error
         else:
             distances = self._compute_embedding_distances(embeddings)
             target = self.dissimilarity_matrix
             error = self._compute_item_error(target, distances)
-            self.error.append(error)
+            self.error += error
 
     def compute(self):
         return self.error
@@ -283,14 +283,14 @@ class Mantel(TimbreMeanErrorMetric):
     def _compute_item_error(self, target: torch.Tensor, distances: torch.Tensor):
         r = self.correlation_function(target, distances)
 
-        if self.permutations == 0:
-            p_value = torch.tensor(float("nan"))
-        else:
-            permutations = self._permutation_test(distances, target)
+        # if self.permutations == 0:
+        #     p_value = torch.tensor(float("nan"))
+        # else:
+        #     permutations = self._permutation_test(distances, target)
 
-            p_value = (
-                torch.sum(self.alternative_hypothesis(r, permutations))
-                / self.permutations
-            )
+        #     p_value = (
+        #         torch.sum(self.alternative_hypothesis(r, permutations))
+        #         / self.permutations
+        #     )
 
-        return (r, p_value)
+        return r  # , p_value)
