@@ -221,15 +221,15 @@ class Mantel(TimbreMeanErrorMetric):
         self.correlation_function = (
             self._pearsonr if method == "pearson" else self._spearmanr
         )
-        self.alternative_hypothesis = (
-            (lambda r, permutations: r <= permutations)
-            if alternative == "greater"
-            else (lambda r, permutations: r >= permutations)
-            if alternative == "less"
-            else (lambda r, permutations: torch.abs(r) <= torch.abs(permutations))
-        )
+        # self.alternative_hypothesis = (
+        #     (lambda r, permutations: r <= permutations)
+        #     if alternative == "greater"
+        #     else (lambda r, permutations: r >= permutations)
+        #     if alternative == "less"
+        #     else (lambda r, permutations: torch.abs(r) <= torch.abs(permutations))
+        # )
 
-        self.permutations = permutations
+        # self.permutations = permutations
 
     def _make_upper_tri_mask(self, matrix: torch.Tensor):
         return torch.ones_like(matrix).triu(1).bool()
