@@ -29,7 +29,7 @@ def load_audio(dataset, audio_file):
     n_frames = aif.getnframes()
     audio_bytes = aif.readframes(n_frames)
     print(np.fromstring(audio_bytes, sample_size).max())
-    audio = np.fromstring(audio_bytes, sample_size) #/ np.iinfo(sample_size).max
+    audio = np.fromstring(audio_bytes, sample_size)
 
     return audio, sr
 
