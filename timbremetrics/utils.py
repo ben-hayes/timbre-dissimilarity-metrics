@@ -28,8 +28,11 @@ def load_audio(dataset, audio_file):
     sr = aif.getframerate()
     n_frames = aif.getnframes()
     audio_bytes = aif.readframes(n_frames)
+    print(np.fromstring(audio_bytes, sample_size).min())
     print(np.fromstring(audio_bytes, sample_size).max())
-    audio = np.fromstring(audio_bytes, sample_size)
+    audio = np.fromstring(audio_bytes, np.float32)  # sample_size)
+    print(audio.max())
+    print(audio.min())
 
     return audio, sr
 
