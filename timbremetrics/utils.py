@@ -16,7 +16,6 @@ def list_datasets():
 
 
 def load_audio(dataset, audio_file):
-    print("Loading audio")
     f = pkg_resources.resource_stream(
         __name__, os.path.join(AUDIO_DIR, dataset, audio_file)
     )
@@ -24,11 +23,13 @@ def load_audio(dataset, audio_file):
     sample_size = {1: np.int8, 2: np.int16, 4: np.int32, 8: np.int64}[
         aif.getsampwidth()
     ]
+    print(sample_size)
 
     sr = aif.getframerate()
     n_frames = aif.getnframes()
     audio_bytes = aif.readframes(n_frames)
-    audio = np.fromstring(audio_bytes, sample_size) / np.iinfo(sample_size).max
+    print(np.fromstring(audio_bytes, sample_size).max())
+    audio = np.fromstring(audio_bytes, sample_size) #/ np.iinfo(sample_size).max
 
     return audio, sr
 
