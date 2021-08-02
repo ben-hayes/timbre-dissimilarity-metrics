@@ -16,6 +16,7 @@ def list_datasets():
 
 
 def load_audio(dataset, audio_file):
+    print("Loading audio")
     f = pkg_resources.resource_stream(
         __name__, os.path.join(AUDIO_DIR, dataset, audio_file)
     )
