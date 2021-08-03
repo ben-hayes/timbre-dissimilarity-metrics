@@ -20,14 +20,18 @@ def load_audio(dataset, audio_file):
         __name__, os.path.join(AUDIO_DIR, dataset, audio_file)
     )
     aif = aifc.open(f)
-    sample_size = {1: np.int8, 2: np.int16, 4: np.int32, 8: np.int64}[
-        aif.getsampwidth()
-    ]
+
+    type_string, dtype = {
+        1: (">i1", np.int8),
+        2: (">i2", np.int16),
+        4: (">i4", np.int32),
+        8: (">i4", np.int64),
+    }[aif.getsampwidth()]
 
     sr = aif.getframerate()
     n_frames = aif.getnframes()
     audio_bytes = aif.readframes(n_frames)
-    audio = np.fromstring(audio_bytes, sample_size) / np.iinfo(sample_size).max
+    audio = np.fromstring(audio_bytes, type_string) / np.iinfo(dtype).max
 
     return audio, sr
 
