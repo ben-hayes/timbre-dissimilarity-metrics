@@ -1,5 +1,5 @@
 # Timbre Dissimilarity Metrics
-A collection of metrics for evaluating timbre dissimilarity using the TorchMetrics API
+A collection of metrics for evaluating timbre dissimilarity using the TorchMetrics API. Work in progress and subject to sudden change — use in projects at your own risk.
 
 ## Installation
 `pip install -e .`
