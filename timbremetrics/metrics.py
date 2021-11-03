@@ -95,7 +95,8 @@ class TimbreMeanErrorMetric(TimbreMetric):
             distances = self._compute_embedding_distances(embeddings)
             target = self.dissimilarity_matrix
             error = self._compute_item_error(target, distances)
-            self.error += error
+
+            self.error = self.error + error
 
     def compute(self):
         return self.error
@@ -198,6 +199,77 @@ class TripletAgreement(TimbreMeanErrorMetric):
         )
 
 
+class TripletInequalityAgreement(TimbreMeanErrorMetric):
+    def __init__(
+        self,
+        margin=0.1,
+        dataset=None,
+        distance=l2,
+        dist_sync_on_step=False,
+    ):
+        super().__init__(dataset, distance, dist_sync_on_step)
+
+        self.margin = margin
+
+    def _get_valid_triplet_idxs(self, target, anchor_idx, n_triplets=10):
+        """
+        Randomly sample N triplets for a specified anchor
+        Parameters
+        ----------
+        target : torch.Tensor
+            a symmetric dissimilarity matrix
+        anchor_idx : int
+            the index of the anchor in the dissimilarity matrix.
+        n_triplets: int
+            maximum number of triplets to sample
+
+        Returns
+        -------
+        torch.Tensor
+            Positive-Negative indices of shape (num_triplets, 2). column 1: positive idx, column 2: negative index
+        """
+        probs = [1 / (len(target) - 1) for _ in range(target.shape[0])]
+        probs[anchor_idx] = 0
+        # sample random (positive, negative) indices
+        perm = torch.stack(
+            [torch.multinomial(torch.tensor(probs), 2) for _ in range(n_triplets)]
+        )
+        # valid (positive, negative) pairs
+        valid_pn = perm[(
+            target[anchor_idx, perm[:, 0]] + self.margin <= 
+            target[anchor_idx, perm[:, 1]]).nonzero()[:, 0]]
+        invalid_pn = perm[(
+            target[anchor_idx, perm[:, 0]] + self.margin > 
+            target[anchor_idx, perm[:, 1]]).nonzero()[:, 0]]
+        
+        # permute the invalid rows
+        def swap_cols(mat):
+            tmp0 = mat[:, 0].clone()
+            tmp1 = mat[:, 1].clone()
+            mat[:, 0] = tmp1
+            mat[:, 1] = tmp0
+            return mat
+
+        triplets = torch.cat([valid_pn, swap_cols(invalid_pn)])
+        return triplets
+
+    def _compute_item_error(self, target: torch.Tensor, distances: torch.Tensor):
+        triplet_agreements = 0
+        triplets = torch.stack([self._get_valid_triplet_idxs(target, idx) for idx in range(target.shape[0])])
+        total_triplets = triplets.shape[0] * triplets.shape[1]
+
+        for anchor_idx, anchor_pn_idxs in enumerate(triplets):
+            for pos_idx, neg_idx in anchor_pn_idxs:
+                if distances[anchor_idx, pos_idx] < distances[anchor_idx, neg_idx]:
+                    triplet_agreements += 1
+
+        return (
+            torch.tensor(triplet_agreements / total_triplets)
+            if total_triplets > 0
+            else torch.tensor(float("nan"))
+        )
+
+
 class Mantel(TimbreMeanErrorMetric):
     def __init__(
         self,
@@ -221,15 +293,18 @@ class Mantel(TimbreMeanErrorMetric):
         self.correlation_function = (
             self._pearsonr if method == "pearson" else self._spearmanr
         )
-        # self.alternative_hypothesis = (
-        #     (lambda r, permutations: r <= permutations)
-        #     if alternative == "greater"
-        #     else (lambda r, permutations: r >= permutations)
-        #     if alternative == "less"
-        #     else (lambda r, permutations: torch.abs(r) <= torch.abs(permutations))
-        # )
+        self.alternative_hypothesis = (
+            (lambda r, permutations: r <= permutations)
+            if alternative == "greater"
+            else (lambda r, permutations: r >= permutations)
+            if alternative == "less"
+            else (lambda r, permutations: torch.abs(r) <= torch.abs(permutations))
+        )
 
-        # self.permutations = permutations
+        p = torch.tensor(0) if self.dataset else torch.zeros(len(self.datasets))
+        self.add_state("p", default=p, dist_reduce_fx="sum")
+
+        self.permutations = permutations
 
     def _make_upper_tri_mask(self, matrix: torch.Tensor):
         return torch.ones_like(matrix).triu(1).bool()
@@ -280,17 +355,38 @@ class Mantel(TimbreMeanErrorMetric):
         ]
         return torch.tensor(permutations)
 
+    def update(self, embeddings: Union[torch.Tensor, dict]):
+        self._validate_embeddings(embeddings)
+        if not self.dataset:
+            for i, dataset in enumerate(self.datasets):
+                distances = self._compute_embedding_distances(embeddings[dataset])
+                target = self.dissimilarity_matrices[dataset]
+                error, p = self._compute_item_error(target, distances)
+                
+                self.error[i] += error
+                self.p[i] = p
+        else:
+            distances = self._compute_embedding_distances(embeddings)
+            target = self.dissimilarity_matrix
+            error, p = self._compute_item_error(target, distances)
+
+            self.error = self.error + error
+            self.p = self.p + p
+
+    def compute(self):
+        return self.error, self.p
+
     def _compute_item_error(self, target: torch.Tensor, distances: torch.Tensor):
         r = self.correlation_function(target, distances)
 
-        # if self.permutations == 0:
-        #     p_value = torch.tensor(float("nan"))
-        # else:
-        #     permutations = self._permutation_test(distances, target)
+        if self.permutations == 0:
+            p_value = torch.tensor(float("nan"))
+        else:
+            permutations = self._permutation_test(distances, target)
 
-        #     p_value = (
-        #         torch.sum(self.alternative_hypothesis(r, permutations))
-        #         / self.permutations
-        #     )
+            p_value = (
+                torch.sum(self.alternative_hypothesis(r, permutations))
+                / self.permutations
+            )
 
-        return r  # , p_value)
+        return r  , p_value
