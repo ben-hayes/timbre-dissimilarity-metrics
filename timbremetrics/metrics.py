@@ -2,8 +2,9 @@ from math import perm
 from typing import Union
 
 import numpy as np
-from torchmetrics import Metric
 import torch
+from torchmetrics import Metric
+from torchmetrics.functional import pearson_corrcoef
 
 from .utils import list_datasets, load_dissimilarity_matrix
 
@@ -14,6 +15,14 @@ def l1(a, b):
 
 def l2(a, b):
     return torch.sqrt(torch.sum((a - b) ** 2))
+
+
+def pairwise_euclidean(a, b, p: int = 2):
+    return torch.cdist(a, b, p=p)
+
+
+def min_max_normalization(a):
+    return (a - a.min()) / (a.max() - a.min())
 
 
 class TimbreMetric(Metric):
@@ -66,11 +75,14 @@ class TimbreMetric(Metric):
                 )
 
     def _compute_embedding_distances(self, embeddings: torch.Tensor):
-        distances = torch.zeros(embeddings.shape[0], embeddings.shape[0])
-        for i in range(embeddings.shape[0] - 1):
-            for j in range(i + 1, embeddings.shape[0]):
-                distances[i, j] = self.distance(embeddings[i], embeddings[j])
-        return distances
+        if self.distance is pairwise_euclidean:
+            return self.distance(embeddings, embeddings)
+        else:
+            distances = torch.zeros(embeddings.shape[0], embeddings.shape[0])
+            for i in range(embeddings.shape[0] - 1):
+                for j in range(i + 1, embeddings.shape[0]):
+                    distances[i, j] = self.distance(embeddings[i], embeddings[j])
+            return distances
 
 
 class TimbreMeanErrorMetric(TimbreMetric):
@@ -166,17 +178,21 @@ class TripletAgreement(TimbreMeanErrorMetric):
         margin=0.1,
         enforce_margin=True,
         dataset=None,
-        distance=l2,
+        distance=pairwise_euclidean,
         dist_sync_on_step=False,
+        normalization=min_max_normalization,
     ):
         super().__init__(dataset, distance, dist_sync_on_step)
         self.margin = margin
         self.enforce_margin = enforce_margin
         self.positive_radius = positive_radius
+        self.normalization = normalization
 
     def _compute_item_error(self, target: torch.Tensor, distances: torch.Tensor):
         triplet_agreements = 0
         total_triplets = 0
+        distances = self.normalization(distances)
+
         for anchor in range(target.shape[0]):
             positives = torch.nonzero(target[anchor] < self.positive_radius)
             negatives = torch.nonzero(
@@ -199,77 +215,6 @@ class TripletAgreement(TimbreMeanErrorMetric):
         )
 
 
-class TripletInequalityAgreement(TimbreMeanErrorMetric):
-    def __init__(
-        self,
-        margin=0.1,
-        dataset=None,
-        distance=l2,
-        dist_sync_on_step=False,
-    ):
-        super().__init__(dataset, distance, dist_sync_on_step)
-
-        self.margin = margin
-
-    def _get_valid_triplet_idxs(self, target, anchor_idx, n_triplets=10):
-        """
-        Randomly sample N triplets for a specified anchor
-        Parameters
-        ----------
-        target : torch.Tensor
-            a symmetric dissimilarity matrix
-        anchor_idx : int
-            the index of the anchor in the dissimilarity matrix.
-        n_triplets: int
-            maximum number of triplets to sample
-
-        Returns
-        -------
-        torch.Tensor
-            Positive-Negative indices of shape (num_triplets, 2). column 1: positive idx, column 2: negative index
-        """
-        probs = [1 / (len(target) - 1) for _ in range(target.shape[0])]
-        probs[anchor_idx] = 0
-        # sample random (positive, negative) indices
-        perm = torch.stack(
-            [torch.multinomial(torch.tensor(probs), 2) for _ in range(n_triplets)]
-        )
-        # valid (positive, negative) pairs
-        valid_pn = perm[(
-            target[anchor_idx, perm[:, 0]] + self.margin <= 
-            target[anchor_idx, perm[:, 1]]).nonzero()[:, 0]]
-        invalid_pn = perm[(
-            target[anchor_idx, perm[:, 0]] + self.margin > 
-            target[anchor_idx, perm[:, 1]]).nonzero()[:, 0]]
-        
-        # permute the invalid rows
-        def swap_cols(mat):
-            tmp0 = mat[:, 0].clone()
-            tmp1 = mat[:, 1].clone()
-            mat[:, 0] = tmp1
-            mat[:, 1] = tmp0
-            return mat
-
-        triplets = torch.cat([valid_pn, swap_cols(invalid_pn)])
-        return triplets
-
-    def _compute_item_error(self, target: torch.Tensor, distances: torch.Tensor):
-        triplet_agreements = 0
-        triplets = torch.stack([self._get_valid_triplet_idxs(target, idx) for idx in range(target.shape[0])])
-        total_triplets = triplets.shape[0] * triplets.shape[1]
-
-        for anchor_idx, anchor_pn_idxs in enumerate(triplets):
-            for pos_idx, neg_idx in anchor_pn_idxs:
-                if distances[anchor_idx, pos_idx] < distances[anchor_idx, neg_idx]:
-                    triplet_agreements += 1
-
-        return (
-            torch.tensor(triplet_agreements / total_triplets)
-            if total_triplets > 0
-            else torch.tensor(float("nan"))
-        )
-
-
 class Mantel(TimbreMeanErrorMetric):
     def __init__(
         self,
@@ -277,8 +222,9 @@ class Mantel(TimbreMeanErrorMetric):
         permutations=0,
         alternative="greater",
         dataset=None,
-        distance=l2,
+        distance=pairwise_euclidean,
         dist_sync_on_step=False,
+        normalization=min_max_normalization,
     ):
         super().__init__(dataset, distance, dist_sync_on_step)
         assert method in (
@@ -305,6 +251,7 @@ class Mantel(TimbreMeanErrorMetric):
         self.add_state("p", default=p, dist_reduce_fx="sum")
 
         self.permutations = permutations
+        self.normalization = normalization
 
     def _make_upper_tri_mask(self, matrix: torch.Tensor):
         return torch.ones_like(matrix).triu(1).bool()
@@ -321,10 +268,10 @@ class Mantel(TimbreMeanErrorMetric):
         matrix[upper_tri_mask] = matrix[upper_tri_mask][permutation]
         return matrix
 
-    def _to_standardised_condensed_upper_triangle(self, matrix: torch.Tensor):
+    def _to_standardized_condensed_upper_triangle(self, matrix: torch.Tensor):
         condensed_matrix = self._to_condensed_upper_triangle(matrix)
-
-        return (condensed_matrix - condensed_matrix.mean()) / condensed_matrix.std()
+        normalized_condensed_matrix = self.normalization(condensed_matrix)
+        return normalized_condensed_matrix
 
     def _to_ranked_condensed_upper_triangle(self, matrix: torch.Tensor):
         condensed_matrix = self._to_condensed_upper_triangle(matrix)
@@ -332,12 +279,11 @@ class Mantel(TimbreMeanErrorMetric):
         return condensed_matrix.argsort()
 
     def _pearsonr(self, a: torch.Tensor, b: torch.Tensor):
-        a = self._to_standardised_condensed_upper_triangle(a)
-        b = self._to_standardised_condensed_upper_triangle(b)
-        numer = torch.sum(a * b)
-        denom = a.shape[0]
+        a = self._to_standardized_condensed_upper_triangle(a)
+        b = self._to_standardized_condensed_upper_triangle(b)
 
-        return numer / denom
+        r = pearson_corrcoef(a, b) 
+        return r
 
     def _spearmanr(self, a: torch.Tensor, b: torch.Tensor):
         a = self._to_ranked_condensed_upper_triangle(a)
