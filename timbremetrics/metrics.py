@@ -250,7 +250,11 @@ class TripletKNNAgreement(TimbreMeanErrorMetric):
             total_triplets += self.k
             triplet_agreements += torch.sum(distances[anchor, i] < distances[anchor, j])
 
-        return torch.tensor(triplet_agreements / total_triplets)
+        return (
+            torch.tensor(triplet_agreements / total_triplets)
+            if total_triplets > 0
+            else torch.tensor(float("nan"))
+        )
 
 
 class Mantel(TimbreMeanErrorMetric):
