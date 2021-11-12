@@ -215,6 +215,44 @@ class TripletAgreement(TimbreMeanErrorMetric):
         )
 
 
+class TripletKNNAgreement(TimbreMeanErrorMetric):
+    def __init__(
+        self,
+        dataset=None,
+        distance=pairwise_euclidean,
+        dist_sync_on_step=False,
+        k=3,
+    ):
+        super().__init__(dataset, distance, dist_sync_on_step)
+        self.k = k
+
+    def get_k_nn(self, target, anchor_idx):
+        sorted_idxs = target[anchor_idx].argsort()
+        k_nn = sorted_idxs[sorted_idxs != anchor_idx][:self.k]
+        return k_nn, sorted_idxs
+
+    def get_k_not_nn(self, target, anchor_idx):
+        _, sorted_idxs = self.get_k_nn(target, anchor_idx)
+        j = sorted_idxs[self.k + 1:]
+        j_shuffled_idxs = torch.randperm(len(j))
+        j = j[j_shuffled_idxs][:self.k]
+        return j
+
+    def _compute_item_error(self, target: torch.Tensor, distances: torch.Tensor):
+        target = target + target.T
+        triplet_agreements = 0
+        total_triplets = 0
+
+        for anchor in range(target.shape[0]):
+            i, _ = self.get_k_nn(target, anchor)
+            j = self.get_k_not_nn(target, anchor)
+            
+            total_triplets += self.k
+            triplet_agreements += torch.sum(distances[anchor, i] < distances[anchor, j])
+
+        return torch.tensor(triplet_agreements / total_triplets)
+
+
 class Mantel(TimbreMeanErrorMetric):
     def __init__(
         self,
@@ -336,3 +374,74 @@ class Mantel(TimbreMeanErrorMetric):
             )
 
         return r  , p_value
+
+
+class TripletInequalityAgreement(TimbreMeanErrorMetric):
+    def __init__(
+        self,
+        margin=0.1,
+        dataset=None,
+        distance=pairwise_euclidean,
+        dist_sync_on_step=False,
+    ):
+        super().__init__(dataset, distance, dist_sync_on_step)
+
+        self.margin = margin
+
+    def _get_valid_triplet_idxs(self, target, anchor_idx, n_triplets=10):
+        """
+        Randomly sample N triplets for a specified anchor
+        Parameters
+        ----------
+        target : torch.Tensor
+            a symmetric dissimilarity matrix
+        anchor_idx : int
+            the index of the anchor in the dissimilarity matrix.
+        n_triplets: int
+            maximum number of triplets to sample
+
+        Returns
+        -------
+        torch.Tensor
+            Positive-Negative indices of shape (num_triplets, 2). column 1: positive idx, column 2: negative index
+        """
+        probs = [1 / (len(target) - 1) for _ in range(target.shape[0])]
+        probs[anchor_idx] = 0
+        # sample random (positive, negative) indices
+        perm = torch.stack(
+            [torch.multinomial(torch.tensor(probs), 2) for _ in range(n_triplets)]
+        )
+        # valid (positive, negative) pairs
+        valid_pn = perm[(
+            target[anchor_idx, perm[:, 0]] + self.margin <= 
+            target[anchor_idx, perm[:, 1]]).nonzero()[:, 0]]
+        invalid_pn = perm[(
+            target[anchor_idx, perm[:, 0]] + self.margin > 
+            target[anchor_idx, perm[:, 1]]).nonzero()[:, 0]]
+        
+        # permute the invalid rows
+        def swap_cols(mat):
+            tmp0 = mat[:, 0].clone()
+            tmp1 = mat[:, 1].clone()
+            mat[:, 0] = tmp1
+            mat[:, 1] = tmp0
+            return mat
+
+        triplets = torch.cat([valid_pn, swap_cols(invalid_pn)])
+        return triplets
+
+    def _compute_item_error(self, target: torch.Tensor, distances: torch.Tensor):
+        triplet_agreements = 0
+        triplets = torch.stack([self._get_valid_triplet_idxs(target, idx) for idx in range(target.shape[0])])
+        total_triplets = triplets.shape[0] * triplets.shape[1]
+
+        for anchor_idx, anchor_pn_idxs in enumerate(triplets):
+            for pos_idx, neg_idx in anchor_pn_idxs:
+                if distances[anchor_idx, pos_idx] < distances[anchor_idx, neg_idx]:
+                    triplet_agreements += 1
+
+        return (
+            torch.tensor(triplet_agreements / total_triplets)
+            if total_triplets > 0
+            else torch.tensor(float("nan"))
+        )
