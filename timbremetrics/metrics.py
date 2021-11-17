@@ -236,12 +236,11 @@ class TripletKNNAgreement(TimbreMeanErrorMetric):
         Returns:
             i_j_idxs: tensor of shape (N, 2) containing indices (i, j)
         '''
-        sorted_idxs = dissim_mat[anchor_idx].argsort()
+        sorted_idxs = target[anchor_idx].argsort()
         idxs = torch.tensor(sorted_idxs[sorted_idxs != anchor_idx])[:self.k]
         
-        i_j_idxs = torch.stack([idxs[[i, j]] 
-                             for i in range(len(idxs) - 1) 
-                             for j in range(i + 1, len(idxs))])
+        i_j_idxs = torch.stack([idxs[[i, j]] for i in range(len(idxs) - 1) 
+                                    for j in range(i + 1, len(idxs))])
         return i_j_idxs
 
     def get_k_nn(self, target, anchor_idx):
