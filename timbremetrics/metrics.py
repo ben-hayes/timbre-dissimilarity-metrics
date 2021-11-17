@@ -2,7 +2,7 @@ from math import perm
 from typing import Union
 
 import numpy as np
-import torch
+import torch, torch.nn.functional as F
 from torchmetrics import Metric
 from torchmetrics.functional import pearson_corrcoef
 
@@ -221,10 +221,28 @@ class TripletKNNAgreement(TimbreMeanErrorMetric):
         dataset=None,
         distance=pairwise_euclidean,
         dist_sync_on_step=False,
-        k=3,
+        k=10,
     ):
         super().__init__(dataset, distance, dist_sync_on_step)
         self.k = k
+
+    def get_k_nn_triplets(self, target, anchor_idx):
+        ''' Returns all possible pairs (i, j) for anchor a 
+            where target[a, i] < target[a, j]
+
+        Args:
+            target: symmetrical dissimilarity matrix
+            anchor_idx: index of the considered anchor
+        Returns:
+            i_j_idxs: tensor of shape (N, 2) containing indices (i, j)
+        '''
+        sorted_idxs = dissim_mat[anchor_idx].argsort()
+        idxs = torch.tensor(sorted_idxs[sorted_idxs != anchor_idx])[:self.k]
+        
+        i_j_idxs = torch.stack([idxs[[i, j]] 
+                             for i in range(len(idxs) - 1) 
+                             for j in range(i + 1, len(idxs))])
+        return i_j_idxs
 
     def get_k_nn(self, target, anchor_idx):
         sorted_idxs = target[anchor_idx].argsort()
