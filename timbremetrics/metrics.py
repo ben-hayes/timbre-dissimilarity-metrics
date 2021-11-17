@@ -262,10 +262,11 @@ class TripletKNNAgreement(TimbreMeanErrorMetric):
         total_triplets = 0
 
         for anchor in range(target.shape[0]):
-            i, _ = self.get_k_nn(target, anchor)
-            j = self.get_k_not_nn(target, anchor)
+            i_j_idxs = self.get_k_nn_triplets(target, anchor)
+            i = i_j_idxs[:, 0]
+            j = i_j_idxs[:, 1]
             
-            total_triplets += self.k
+            total_triplets += len(i)
             triplet_agreements += torch.sum(distances[anchor, i] < distances[anchor, j])
 
         return (
