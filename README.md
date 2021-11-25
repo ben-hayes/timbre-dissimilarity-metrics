@@ -62,3 +62,18 @@ Samples pseudo-triplets from the target distance matrix according to a positivit
 ### Mantel Test
 
 The Mantel test computes Pearson's r or Spearman's rho on the condensed form of the upper triangles of the predicted and target distance matrices. The significance of the given result can be estimated using permutation analysis.
+
+## References
+```
+@article{thoret2021learning,
+  title={Learning metrics on spectrotemporal modulations reveals the perception of musical instrument timbre},
+  author={Thoret, Etienne and Caramiaux, Baptiste and Depalle, Philippe and Mcadams, Stephen},
+  journal={Nature Human Behaviour},
+  volume={5},
+  number={3},
+  pages={369--377},
+  year={2021},
+  publisher={Nature Publishing Group}
+}
+```
+- original data source: https://github.com/EtienneTho/musical-timbre-studies 
