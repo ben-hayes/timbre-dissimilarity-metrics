@@ -221,10 +221,19 @@ class TripletKNNAgreement(TimbreMeanErrorMetric):
         dataset=None,
         distance=pairwise_euclidean,
         dist_sync_on_step=False,
-        k=10,
+        k=5,
+        anchor_idx = None
     ):
+        ''' Evaluate agreements to the triplet constraint D(a, i) < D(a, j)
+            from a dissimilarity matrix D
+        
+        Args:
+            k -- int: k-nearest neighborhood to evaluate for each anchor
+            anchor_idx -- int: if not None, evaluate around a single anchor
+        '''
         super().__init__(dataset, distance, dist_sync_on_step)
         self.k = k
+        self.anchor_idx = anchor_idx
 
     def get_k_nn_triplets(self, target, anchor_idx):
         ''' Returns all possible pairs (i, j) for anchor a 
@@ -260,7 +269,9 @@ class TripletKNNAgreement(TimbreMeanErrorMetric):
         triplet_agreements = 0
         total_triplets = 0
 
-        for anchor in range(target.shape[0]):
+        anchors = range(target.shape[0]) if not self.anchor_idx else [self.anchor_idx]
+
+        for anchor in anchors:
             i_j_idxs = self.get_k_nn_triplets(target, anchor)
             i = i_j_idxs[:, 0]
             j = i_j_idxs[:, 1]
